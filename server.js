@@ -13,13 +13,53 @@ const db = new sqlite3.Database('./pipeline.db');
 
 // ==================== FIREBASE ADMIN INITIALIZATION ====================
 
-const serviceAccount = require('./firebase-service-account.json');
+let firebaseApp = null;
 
-admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-    databaseURL: 'https://jal-mahakal-shakti-default-rtdb.asia-southeast1.firebasedatabase.app/'
-});
+function initFirebase() {
+    if (firebaseApp) return firebaseApp;
 
+    // Check environment
+    if (process.env.NODE_ENV === 'production') {
+        // Production: Use environment variables
+        console.log('🔥 Initializing Firebase from environment variables...');
+        
+        const serviceAccount = {
+            type: 'service_account',
+            project_id: process.env.FIREBASE_PROJECT_ID,
+            private_key_id: process.env.FIREBASE_PRIVATE_KEY_ID,
+            private_key: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+            client_email: process.env.FIREBASE_CLIENT_EMAIL,
+            client_id: process.env.FIREBASE_CLIENT_ID,
+            auth_uri: 'https://accounts.google.com/o/oauth2/auth',
+            token_uri: 'https://oauth2.googleapis.com/token',
+            auth_provider_x509_cert_url: 'https://www.googleapis.com/oauth2/v1/certs',
+        };
+
+        firebaseApp = admin.initializeApp({
+            credential: admin.credential.cert(serviceAccount),
+            databaseURL: process.env.FIREBASE_DATABASE_URL
+        });
+    } else {
+        // Development: Use JSON file
+        console.log('🔥 Initializing Firebase from JSON file...');
+        try {
+            const serviceAccount = require('./firebase-service-account.json');
+            firebaseApp = admin.initializeApp({
+                credential: admin.credential.cert(serviceAccount),
+                databaseURL: 'https://jal-mahakal-shakti-default-rtdb.asia-southeast1.firebasedatabase.app/'
+            });
+        } catch (err) {
+            console.error('❌ Error loading Firebase credentials:', err.message);
+            console.log('💡 Make sure firebase-service-account.json exists for local development');
+        }
+    }
+
+    console.log('✅ Firebase initialized successfully');
+    return firebaseApp;
+}
+
+// Initialize Firebase
+initFirebase();
 const firebaseDb = admin.database();
 
 // ==================== DATABASE SETUP ====================
@@ -199,7 +239,7 @@ function startRealtimeListener(deviceId, tankId) {
                 [metrics.waterLevel, deviceId]
             );
             
-            // Send to SSE clients only (not WebSocket)
+            // Send to SSE clients
             const clients = sseClients.get(deviceId) || [];
             const payload = {
                 deviceId,
@@ -522,9 +562,8 @@ app.get('/api/tank/:tankId', (req, res) => {
     });
 });
 
-// 🎯 KEY FIX: Debounced broadcast to prevent spam
 let broadcastTimeout = null;
-const BROADCAST_DELAY = 300; // 300ms debounce
+const BROADCAST_DELAY = 300;
 
 app.put('/api/tank/:tankId', (req, res) => {
     const tank = req.body;
@@ -542,7 +581,6 @@ app.put('/api/tank/:tankId', (req, res) => {
     db.run(`UPDATE tanks SET ${updates.join(', ')} WHERE tankId = ?`, values, function(err) {
         if (err) return res.status(500).json({ error: err.message });
         
-        // Debounced broadcast to prevent rapid-fire updates
         clearTimeout(broadcastTimeout);
         broadcastTimeout = setTimeout(() => {
             db.get('SELECT * FROM tanks WHERE tankId = ?', [req.params.tankId], (err, updatedTank) => {
@@ -565,7 +603,6 @@ app.delete('/api/tank/:tankId', (req, res) => {
     db.run('DELETE FROM tanks WHERE tankId = ?', [req.params.tankId], function(err) {
         if (err) return res.status(500).json({ error: err.message });
         
-        // Broadcast deletion
         broadcastToAll({
             type: 'tank_deleted',
             tankId: req.params.tankId
@@ -628,7 +665,6 @@ app.put('/api/valve/:valveId', (req, res) => {
         if (err) return res.status(500).json({ error: err.message });
         if (this.changes === 0) return res.status(404).json({ error: 'Valve not found' });
         
-        // Debounced valve broadcast
         db.get('SELECT * FROM gate_valves WHERE valveId = ?', [req.params.valveId], (err, updatedValve) => {
             if (updatedValve) {
                 updatedValve.isOpen = updatedValve.isOpen === 1;
@@ -689,7 +725,7 @@ app.use((err, req, res, next) => {
     res.status(500).json({ error: err.message || 'Internal server error' });
 });
 
-// ==================== WEBSOCKET SERVER - OPTIMIZED ====================
+// ==================== WEBSOCKET SERVER ====================
 
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
@@ -707,7 +743,6 @@ wss.on('connection', (ws) => {
             const data = JSON.parse(message);
             console.log('📨 Received from client:', data);
             
-            // Optional: Handle client requests if needed
             if (data.type === 'ping') {
                 ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
             }
@@ -726,7 +761,6 @@ wss.on('connection', (ws) => {
         wsClients.delete(ws);
     });
 
-    // Send connection confirmation
     ws.send(JSON.stringify({
         type: 'connected',
         message: 'Connected to Water Monitoring WebSocket',
@@ -734,7 +768,6 @@ wss.on('connection', (ws) => {
     }));
 });
 
-// 🎯 OPTIMIZED: Only broadcast to OPEN connections
 function broadcastToAll(data) {
     if (wsClients.size === 0) {
         console.log('⏭️  No WebSocket clients, skipping broadcast');
@@ -756,7 +789,6 @@ function broadcastToAll(data) {
                 closed++;
             }
         } else {
-            // Remove dead connections
             wsClients.delete(client);
             closed++;
         }
@@ -767,7 +799,6 @@ function broadcastToAll(data) {
     }
 }
 
-// Heartbeat to keep connections alive and clean up dead ones
 setInterval(() => {
     wss.clients.forEach(ws => {
         if (ws.isAlive === false) {
@@ -778,14 +809,13 @@ setInterval(() => {
         ws.isAlive = false;
         ws.ping();
     });
-}, 30000); // Every 30 seconds
+}, 30000);
 
 // ==================== CLEANUP ON EXIT ====================
 
 process.on('SIGINT', () => {
     console.log('\n🛑 Shutting down server...');
     
-    // Close all WebSocket connections gracefully
     wsClients.forEach(client => {
         try {
             client.close(1000, 'Server shutting down');
@@ -795,12 +825,10 @@ process.on('SIGINT', () => {
     });
     wss.close();
     
-    // Stop all Firebase listeners
     firebaseListeners.forEach((listenerInfo, deviceId) => {
         stopRealtimeListener(deviceId);
     });
     
-    // Close database
     db.close((err) => {
         if (err) {
             console.error('Error closing database:', err);
@@ -818,16 +846,15 @@ process.on('SIGTERM', () => {
 
 // ==================== START SERVER ====================
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
     console.log('='.repeat(60));
-    console.log('🚀 Server with WebSocket running on http://0.0.0.0:3000');
+    console.log(`🚀 Server running on http://0.0.0.0:${PORT}`);
     console.log('='.repeat(60));
-    console.log('🔌 WebSocket: ws://localhost:3000');
+    console.log('🔌 WebSocket: ws://localhost:' + PORT);
     console.log('📡 SSE Sensor Stream: /api/stream/device/:deviceId');
     console.log('🔥 Firebase Real-Time Database: Connected');
-    console.log('✅ Hybrid Mode: SSE for sensors + WebSocket for sync');
-    console.log('🎯 Optimizations: Debounced broadcasts, dead connection cleanup');
+    console.log('✅ Environment:', process.env.NODE_ENV || 'development');
     console.log('='.repeat(60));
     console.log('📋 Endpoints:');
     console.log('   Tanks:      /api/tanks');
