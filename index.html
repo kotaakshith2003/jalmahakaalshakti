@@ -1,0 +1,1138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Water Pipeline System - Advanced Control with Live Sensors</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+    <style>
+        * { 
+            box-sizing: border-box; 
+            margin: 0;
+            padding: 0;
+        }
+        
+        body { 
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            overflow: hidden;
+            background: #0f1419;
+        }
+        
+        #map { 
+            width: 100vw; 
+            height: 100vh;
+            position: fixed;
+            top: 0;
+            left: 0;
+        }
+        
+        /* Left Control Panel */
+        #controls { 
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        
+        .control-btn {
+            width: 56px;
+            height: 56px;
+            border-radius: 16px;
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            background: rgba(255, 255, 255, 0.98);
+            backdrop-filter: blur(20px);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+            position: relative;
+        }
+        
+        .control-btn:hover {
+            transform: translateY(-3px) scale(1.05);
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.25);
+        }
+        
+        .control-btn.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            box-shadow: 0 8px 30px rgba(102, 126, 234, 0.4);
+        }
+        
+        .control-btn[data-action="draw"] { color: #667eea; }
+        .control-btn[data-action="tank"] { color: #10b981; }
+        .control-btn[data-action="valve"] { color: #8b5cf6; }
+        .control-btn[data-action="erase"] { color: #ef4444; }
+        .control-btn[data-action="refresh"] { color: #3b82f6; }
+        
+        /* Right Sidebar - Professional Design */
+        #sidebar {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            width: 380px;
+            max-height: calc(100vh - 40px);
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 24px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .sidebar-header {
+            padding: 28px;
+            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .sidebar-header::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+            animation: pulse 4s ease-in-out infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 0.5; }
+            50% { transform: scale(1.1); opacity: 0.8; }
+        }
+        
+        .sidebar-header h3 {
+            font-size: 22px;
+            font-weight: 700;
+            color: white;
+            margin-bottom: 4px;
+            position: relative;
+            z-index: 1;
+            letter-spacing: -0.5px;
+        }
+        
+        .sidebar-header p {
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.8);
+            position: relative;
+            z-index: 1;
+        }
+        
+        .sidebar-tabs {
+            display: flex;
+            gap: 8px;
+            margin-top: 20px;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .tab-btn {
+            flex: 1;
+            padding: 12px;
+            background: rgba(255, 255, 255, 0.15);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .tab-btn:hover {
+            background: rgba(255, 255, 255, 0.25);
+            color: white;
+        }
+        
+        .tab-btn.active {
+            background: white;
+            color: #6366f1;
+            border-color: white;
+            box-shadow: 0 4px 12px rgba(255, 255, 255, 0.2);
+        }
+        
+        .sidebar-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            background: #0f172a;
+        }
+        
+        /* Custom Scrollbar */
+        .sidebar-content::-webkit-scrollbar {
+            width: 6px;
+        }
+        
+        .sidebar-content::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 3px;
+        }
+        
+        .sidebar-content::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 3px;
+        }
+        
+        .sidebar-content::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+        
+        .list-item {
+            padding: 16px;
+            margin-bottom: 12px;
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .list-item::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            height: 100%;
+            width: 3px;
+            background: linear-gradient(to bottom, #6366f1, #8b5cf6);
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        
+        .list-item:hover {
+            border-color: rgba(99, 102, 241, 0.5);
+            transform: translateX(-4px);
+            box-shadow: 0 8px 24px rgba(99, 102, 241, 0.2);
+        }
+        
+        .list-item:hover::before {
+            opacity: 1;
+        }
+        
+        .list-item-content {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            flex: 1;
+        }
+        
+        .item-icon {
+            width: 44px;
+            height: 44px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            color: white;
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+        }
+        
+        .item-details h4 {
+            font-size: 15px;
+            font-weight: 600;
+            color: #f1f5f9;
+            margin-bottom: 4px;
+            letter-spacing: -0.2px;
+        }
+        
+        .item-details p {
+            font-size: 12px;
+            color: #94a3b8;
+            font-weight: 500;
+        }
+        
+        .item-actions {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .icon-btn {
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            border: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            transition: all 0.3s;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .icon-btn::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: white;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        
+        .icon-btn:hover::before {
+            opacity: 0.1;
+        }
+        
+        .icon-btn.edit {
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            color: white;
+        }
+        
+        .icon-btn.delete {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            color: white;
+        }
+        
+        .icon-btn i {
+            position: relative;
+            z-index: 1;
+        }
+        
+        .icon-btn:hover {
+            transform: scale(1.1);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+        }
+        
+        /* Stats Panel - Professional */
+        #stats {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            width: 340px;
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 24px;
+            padding: 24px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+        }
+        
+        #stats h4 {
+            font-size: 16px;
+            font-weight: 700;
+            color: #f1f5f9;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            letter-spacing: -0.3px;
+        }
+        
+        #stats h4 i {
+            font-size: 18px;
+            color: #6366f1;
+        }
+        
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 14px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        
+        .stat-row:last-child {
+            border-bottom: none;
+        }
+        
+        .stat-label {
+            font-size: 13px;
+            color: #94a3b8;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .stat-label::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+        }
+        
+        .stat-value {
+            font-size: 20px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        /* Detail Sidebar - Industry Grade */
+        .detail-sidebar {
+            position: fixed;
+            right: -520px;
+            top: 0;
+            width: 520px;
+            height: 100vh;
+            background: #0f172a;
+            box-shadow: -10px 0 50px rgba(0, 0, 0, 0.5);
+            z-index: 2000;
+            transition: right 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            overflow-y: auto;
+            border-left: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .detail-sidebar.open {
+            right: 0;
+        }
+        
+        .detail-header {
+            padding: 36px;
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            position: relative;
+        }
+        
+        .detail-close {
+            position: absolute;
+            top: 28px;
+            right: 28px;
+            width: 44px;
+            height: 44px;
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            background: rgba(255, 255, 255, 0.05);
+            color: #f1f5f9;
+            font-size: 18px;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .detail-close:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.3);
+            transform: rotate(90deg);
+        }
+        
+        .detail-header h2 {
+            font-size: 28px;
+            color: #f1f5f9;
+            margin-bottom: 12px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+        }
+        
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            border-radius: 12px;
+            font-size: 13px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .status-badge.active {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+        }
+        
+        .status-badge.inactive {
+            background: linear-gradient(135deg, #64748b 0%, #475569 100%);
+            color: white;
+        }
+        
+        .detail-content {
+            padding: 32px;
+        }
+        
+        .info-card {
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 16px;
+            transition: all 0.3s;
+        }
+        
+        .info-card:hover {
+            border-color: rgba(99, 102, 241, 0.3);
+            box-shadow: 0 4px 20px rgba(99, 102, 241, 0.15);
+        }
+        
+        .info-card label {
+            font-size: 11px;
+            color: #94a3b8;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 10px;
+        }
+        
+        .info-card value {
+            font-size: 15px;
+            color: #f1f5f9;
+            font-weight: 600;
+            display: block;
+            line-height: 1.6;
+        }
+        
+        /* Live Data Card - Special Styling */
+        .live-data-card {
+            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            color: white;
+            padding: 28px;
+            margin-bottom: 20px;
+            border-radius: 20px;
+            box-shadow: 0 10px 40px rgba(99, 102, 241, 0.4);
+            border: none;
+        }
+        
+        .live-data-card label {
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 12px;
+        }
+        
+        .connection-status {
+            font-size: 11px;
+            padding: 6px 14px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 20px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            backdrop-filter: blur(10px);
+        }
+        
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        
+        .metric-card {
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 20px;
+            text-align: center;
+            transition: all 0.3s;
+        }
+        
+        .metric-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 24px rgba(99, 102, 241, 0.2);
+            border-color: rgba(99, 102, 241, 0.4);
+        }
+        
+        .metric-icon {
+            font-size: 28px;
+            margin-bottom: 8px;
+        }
+        
+        .metric-value {
+            font-size: 24px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 4px;
+        }
+        
+        .metric-label {
+            font-size: 11px;
+            color: #94a3b8;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .action-button {
+            width: 100%;
+            padding: 16px;
+            border: none;
+            border-radius: 14px;
+            font-size: 15px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .action-button.primary {
+            background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+            color: white;
+            box-shadow: 0 4px 16px rgba(99, 102, 241, 0.3);
+        }
+        
+        .action-button.success {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            color: white;
+            box-shadow: 0 4px 16px rgba(16, 185, 129, 0.3);
+        }
+        
+        .action-button.danger {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+            color: white;
+            box-shadow: 0 4px 16px rgba(239, 68, 68, 0.3);
+        }
+        
+        .action-button.warning {
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            color: white;
+            box-shadow: 0 4px 16px rgba(245, 158, 11, 0.3);
+        }
+        
+        .action-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 28px rgba(0, 0, 0, 0.3);
+        }
+        
+        /* Modal Styling - Professional */
+        #modalOverlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(8px);
+            z-index: 2999;
+        }
+        
+        #modalOverlay.show { display: block; }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 90%;
+            max-width: 640px;
+            max-height: 90vh;
+            background: #0f172a;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 24px;
+            box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+            z-index: 3000;
+            overflow: hidden;
+        }
+        
+        .modal.show {
+            display: block;
+            animation: modalSlideIn 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        @keyframes modalSlideIn {
+            from { 
+                opacity: 0;
+                transform: translate(-50%, -55%);
+            }
+            to { 
+                opacity: 1;
+                transform: translate(-50%, -50%);
+            }
+        }
+        
+        .modal-header {
+            padding: 32px;
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .modal-header h3 {
+            font-size: 24px;
+            font-weight: 700;
+            color: #f1f5f9;
+            letter-spacing: -0.5px;
+        }
+        
+        .modal-body {
+            padding: 32px;
+            max-height: calc(90vh - 220px);
+            overflow-y: auto;
+            background: #0f172a;
+        }
+        
+        .form-group {
+            margin-bottom: 24px;
+        }
+        
+        .form-group label {
+            display: block;
+            font-size: 13px;
+            font-weight: 700;
+            color: #f1f5f9;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 14px 16px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 12px;
+            font-size: 15px;
+            transition: all 0.3s;
+            background: #1e293b;
+            color: #f1f5f9;
+            font-weight: 500;
+        }
+        
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #6366f1;
+            box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.15);
+            background: #334155;
+        }
+        
+        .modal-footer {
+            padding: 24px 32px;
+            background: #1e293b;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            gap: 12px;
+        }
+        
+        .modal-footer button {
+            flex: 1;
+            padding: 16px;
+            border: none;
+            border-radius: 12px;
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        /* Map Markers */
+        .tank-icon {
+            width: 48px !important;
+            height: 48px !important;
+            border-radius: 50%;
+            border: 4px solid white;
+            display: flex !important;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+            transition: all 0.3s;
+        }
+        
+        .tank-icon:hover {
+            transform: scale(1.15);
+            box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+        }
+        
+        .tank-icon-inactive {
+            background: linear-gradient(135deg, #64748b 0%, #475569 100%);
+        }
+        
+        .tank-icon-active {
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            animation: tankPulse 2s ease-in-out infinite;
+        }
+        
+        @keyframes tankPulse {
+            0%, 100% { 
+                transform: scale(1); 
+                box-shadow: 0 4px 20px rgba(16, 185, 129, 0.5);
+            }
+            50% { 
+                transform: scale(1.1); 
+                box-shadow: 0 8px 35px rgba(16, 185, 129, 0.8);
+            }
+        }
+        
+        .valve-icon {
+            width: 36px !important;
+            height: 36px !important;
+            border-radius: 50%;
+            border: 3px solid white;
+            display: flex !important;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 3px 15px rgba(0,0,0,0.4);
+            transition: all 0.3s;
+        }
+        
+        .valve-icon:hover {
+            transform: scale(1.2);
+        }
+        
+        .valve-icon-closed {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+        }
+        
+        .valve-icon-open {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            animation: valvePulse 2s ease-in-out infinite;
+        }
+        
+        @keyframes valvePulse {
+            0%, 100% { 
+                box-shadow: 0 3px 15px rgba(59, 130, 246, 0.5);
+            }
+            50% { 
+                box-shadow: 0 5px 25px rgba(59, 130, 246, 0.8);
+            }
+        }
+        
+        /* Water Flow Animation */
+        .water-flow-line {
+            stroke-dasharray: 12, 12;
+            animation: flowDash 1s linear infinite;
+        }
+        
+        .water-blocked-line {
+            opacity: 0.4;
+        }
+        
+        @keyframes flowDash {
+            from { stroke-dashoffset: 0; }
+            to { stroke-dashoffset: -24; }
+        }
+        
+        /* Alert/Warning Cards */
+        .alert-card {
+            background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+            border: 2px solid #f59e0b;
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        
+        .alert-icon {
+            font-size: 28px;
+            color: #d97706;
+        }
+        
+        .alert-content h4 {
+            font-size: 14px;
+            font-weight: 700;
+            color: #92400e;
+            margin-bottom: 4px;
+        }
+        
+        .alert-content p {
+            font-size: 13px;
+            color: #78350f;
+            margin: 0;
+            line-height: 1.5;
+        }
+        
+        /* Loading States */
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 0.8s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #64748b;
+        }
+        
+        .empty-state i {
+            font-size: 64px;
+            margin-bottom: 20px;
+            opacity: 0.3;
+        }
+        
+        .empty-state h3 {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #94a3b8;
+        }
+        
+        .empty-state p {
+            font-size: 14px;
+            color: #64748b;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+
+    <!-- Left Control Panel -->
+    <div id="controls">
+        <button class="control-btn" id="drawBtn" data-action="draw" title="Draw Pipeline">
+            <i class="fas fa-pen"></i>
+        </button>
+        <button class="control-btn" id="addTankBtn" data-action="tank" title="Add Tank">
+            <i class="fas fa-water"></i>
+        </button>
+        <button class="control-btn" id="addValveBtn" data-action="valve" title="Add Valve">
+            <i class="fas fa-valve"></i>
+        </button>
+        <button class="control-btn" id="eraseBtn" data-action="erase" title="Erase Section">
+            <i class="fas fa-eraser"></i>
+        </button>
+        <button class="control-btn" id="loadBtn" data-action="refresh" title="Refresh Data">
+            <i class="fas fa-sync-alt"></i>
+        </button>
+    </div>
+
+    <!-- Right Sidebar -->
+    <div id="sidebar">
+        <div class="sidebar-header">
+            <h3>💧 System Dashboard</h3>
+            <p>Real-time monitoring & control</p>
+            <div class="sidebar-tabs">
+                <button class="tab-btn active" data-tab="pipelines">
+                    <i class="fas fa-route"></i> Lines
+                </button>
+                <button class="tab-btn" data-tab="tanks">
+                    <i class="fas fa-water"></i> Tanks
+                </button>
+                <button class="tab-btn" data-tab="valves">
+                    <i class="fas fa-valve"></i> Valves
+                </button>
+            </div>
+        </div>
+        <div class="sidebar-content">
+            <div id="pipelinesList" class="tab-content active"></div>
+            <div id="tanksList" class="tab-content" style="display:none;"></div>
+            <div id="valvesList" class="tab-content" style="display:none;"></div>
+        </div>
+    </div>
+
+    <!-- Stats Panel -->
+    <div id="stats">
+        <h4><i class="fas fa-chart-bar"></i> Live Statistics</h4>
+        <div class="stat-row">
+            <span class="stat-label">Active Tanks</span>
+            <span class="stat-value" id="activeTanksCount">0</span>
+        </div>
+        <div class="stat-row">
+            <span class="stat-label">Open Valves</span>
+            <span class="stat-value" id="openValvesCount">0</span>
+        </div>
+        <div class="stat-row">
+            <span class="stat-label">Flowing Segments</span>
+            <span class="stat-value" id="flowingSegments">0</span>
+        </div>
+        <div class="stat-row">
+            <span class="stat-label">Coverage</span>
+            <span class="stat-value" id="flowCoverage">0%</span>
+        </div>
+    </div>
+
+    <!-- Tank Detail Sidebar - FIXED CLOSE BUTTON -->
+    <div id="tankSidebar" class="detail-sidebar">
+        <button class="detail-close" onclick="event.preventDefault(); event.stopPropagation(); window.closeTankSidebar(); return false;">
+            <i class="fas fa-times"></i>
+        </button>
+        <div id="tankSidebarContent"></div>
+    </div>
+
+    <!-- Valve Detail Sidebar - FIXED CLOSE BUTTON -->
+    <div id="valveSidebar" class="detail-sidebar">
+        <button class="detail-close" onclick="event.preventDefault(); event.stopPropagation(); closeValveSidebar(); return false;">
+            <i class="fas fa-times"></i>
+        </button>
+        <div id="valveSidebarContent"></div>
+    </div>
+
+    <!-- Modal Overlay -->
+    <div id="modalOverlay"></div>
+
+    <!-- Tank Modal -->
+    <div id="tankModal" class="modal">
+        <div class="modal-header">
+            <h3 id="tankModalTitle">🏭 Add Tank</h3>
+        </div>
+        <div class="modal-body">
+            <form id="tankForm">
+                <div class="form-group">
+                    <label>Tank ID *</label>
+                    <input type="text" id="tankId" required placeholder="TANK-001">
+                </div>
+                <div class="form-group">
+                    <label>Device ID</label>
+                    <input type="text" id="deviceId" placeholder="ESP32-001">
+                </div>
+                <div class="form-group">
+                    <label>Name *</label>
+                    <input type="text" id="tankName" required placeholder="Main Distribution Tank">
+                </div>
+                <div class="form-group">
+                    <label>Location - State</label>
+                    <input type="text" id="state" placeholder="Telangana">
+                </div>
+                <div class="form-group">
+                    <label>Location - District</label>
+                    <input type="text" id="district" placeholder="Hyderabad">
+                </div>
+                <div class="form-group">
+                    <label>Location - Mandal</label>
+                    <input type="text" id="mandal" placeholder="Kukatpally">
+                </div>
+                <div class="form-group">
+                    <label>Location - Habitation</label>
+                    <input type="text" id="habitation" placeholder="KPHB Colony">
+                </div>
+                <div class="form-group">
+                    <label>Type *</label>
+                    <select id="tankType" required>
+                        <option value="OHSR">OHSR (Overhead Storage Reservoir)</option>
+                        <option value="GSR">GSR (Ground Storage Reservoir)</option>
+                        <option value="ESR">ESR (Elevated Storage Reservoir)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Shape *</label>
+                    <select id="tankShape" required>
+                        <option value="Cylinder">Cylinder</option>
+                        <option value="Cuboid">Cuboid</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Diameter (m) *</label>
+                    <input type="number" step="any" id="diameter" required placeholder="10">
+                </div>
+                <div class="form-group">
+                    <label>Height (m) *</label>
+                    <input type="number" step="any" id="height" required placeholder="10">
+                </div>
+                <div class="form-group">
+                    <label>Sensor Height (m) *</label>
+                    <input type="number" step="any" id="sensorHeight" required placeholder="10">
+                </div>
+                <div class="form-group">
+                    <label>Capacity (L) *</label>
+                    <input type="number" step="any" id="capacity" required placeholder="50000">
+                </div>
+                <div class="form-group">
+                    <label>📍 Location (Drag marker on map)</label>
+                    <input type="text" id="tankLocation" readonly style="background: #1e293b; cursor: not-allowed;">
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button type="button" id="cancelTankBtn" style="background: #475569; color: #f1f5f9;">Cancel</button>
+            <button type="submit" form="tankForm" style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white;">
+                <i class="fas fa-save"></i> Save Tank
+            </button>
+        </div>
+    </div>
+
+    <!-- Valve Modal -->
+    <div id="valveModal" class="modal">
+        <div class="modal-header">
+            <h3 id="valveModalTitle">🔧 Add Valve</h3>
+        </div>
+        <div class="modal-body">
+            <form id="valveForm">
+                <div class="form-group">
+                    <label>Valve ID *</label>
+                    <input type="text" id="valveId" required placeholder="VALVE-001">
+                </div>
+                <div class="form-group">
+                    <label>Name *</label>
+                    <input type="text" id="valveName" required placeholder="Main Control Valve">
+                </div>
+                <div class="form-group">
+                    <label>Type *</label>
+                    <select id="valveType" required>
+                        <option value="Gate">Gate Valve</option>
+                        <option value="Ball">Ball Valve</option>
+                        <option value="Butterfly">Butterfly Valve</option>
+                        <option value="Check">Check Valve</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Category *</label>
+                    <select id="valveCategory" required>
+                        <option value="Main">Main Valve</option>
+                        <option value="Sub">Sub Valve</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Households Served</label>
+                    <input type="number" id="valveHouseholds" placeholder="100">
+                </div>
+                <div class="form-group">
+                    <label>Flow Rate (L/min)</label>
+                    <input type="number" step="any" id="valveFlowRate" placeholder="500">
+                </div>
+                <div class="form-group">
+                    <label>📍 Location (Will snap to nearest pipeline)</label>
+                    <input type="text" id="valveLocation" readonly style="background: #1e293b; cursor: not-allowed;">
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button type="button" id="cancelValveBtn" style="background: #475569; color: #f1f5f9;">Cancel</button>
+            <button type="submit" form="valveForm" style="background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); color: white;">
+                <i class="fas fa-save"></i> Save Valve
+            </button>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="pipeline-manager.js"></script>
+    <script src="gatevalve.js"></script>
+    <script src="sensor-live.js"></script>
+</body>
+</html>
